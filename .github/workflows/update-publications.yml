@@ -1,0 +1,46 @@
+name: Update Google Scholar Publications
+
+on:
+  schedule:
+    # Runs every day at 03:00 UTC — checks for any new publication your
+    # professor has added to their Google Scholar profile.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}  # allows manual trigger from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  update-publications:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Fetch publications from Google Scholar (via ScraperAPI)
+        env:
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+          SCHOLAR_ID: ${{ secrets.SCHOLAR_ID }}
+        run: python scripts/fetch_scholar.py
+
+      - name: Move generated files into site content
+        run: |
+          mkdir -p data
+          mv publications.html data/publications.html
+          mv publications.json data/publications.json
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/publications.html data/publications.json
+          git diff --quiet --cached || git commit -m "Auto-update publications from Google Scholar"
+          git push
