@@ -1,28 +1,19 @@
 """
-fetch_scholar.py (ScraperAPI version)
+fetch_scholar.py (ScraperAPI version, with retries and proxy escalation)
 
-Fetches the Google Scholar author profile page HTML through ScraperAPI
-(which handles proxying so Google doesn't block the request), parses the
-publication list out of the raw HTML with BeautifulSoup, and writes an HTML
-fragment (publications.html) matching this layout for each entry:
-
-    Title (clickable, opens the Google Scholar page for that article in a new tab)
-    Authors
-    Venue / Journal / Conference info
+Fetches the Google Scholar author profile through ScraperAPI, parses the
+publication list, and writes publications.html and publications.json.
 
 Environment variables required:
   SCRAPERAPI_KEY - your ScraperAPI API key
   SCHOLAR_ID     - the Google Scholar author id (the 'user=' value in the profile URL)
-
-Output:
-  publications.html - an HTML fragment with the publication list
-  publications.json - the raw structured data (useful for debugging / future re-use)
 """
 
 import os
 import sys
 import json
 import time
+import html as htmllib
 import requests
 from bs4 import BeautifulSoup
 
@@ -33,28 +24,59 @@ if not SCRAPERAPI_KEY or not SCHOLAR_ID:
     print("ERROR: SCRAPERAPI_KEY and SCHOLAR_ID environment variables must be set.")
     sys.exit(1)
 
-SCRAPERAPI_ENDPOINT = "http://api.scraperapi.com/"
+SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/"
 SCHOLAR_BASE_URL = "https://scholar.google.com/citations"
-PAGE_SIZE = 100  # Google Scholar allows up to 100 per page
+PAGE_SIZE = 100
+
+# Each attempt uses a stronger (and more credit-hungry) proxy mode than the last.
+# Google Scholar usually needs "premium" or higher.
+ATTEMPTS = [
+    {"country_code": "us"},
+    {"premium": "true", "country_code": "us"},
+    {"premium": "true", "country_code": "us"},
+    {"ultra_premium": "true"},
+]
 
 
 def fetch_page_html(cstart):
-    """Fetches one page of the author's profile via ScraperAPI."""
+    """Fetches one page of the author's profile via ScraperAPI, escalating on failure."""
     target_url = (
         f"{SCHOLAR_BASE_URL}?hl=en&user={SCHOLAR_ID}"
         f"&cstart={cstart}&pagesize={PAGE_SIZE}"
     )
-    params = {
-        "api_key": SCRAPERAPI_KEY,
-        "url": target_url,
-    }
-    resp = requests.get(SCRAPERAPI_ENDPOINT, params=params, timeout=60)
-    resp.raise_for_status()
-    return resp.text
+    last_error = None
+
+    for i, extra in enumerate(ATTEMPTS, start=1):
+        params = {"api_key": SCRAPERAPI_KEY, "url": target_url, **extra}
+        mode = ",".join(extra.keys())
+        print(f"  attempt {i}/{len(ATTEMPTS)} (mode: {mode})...", flush=True)
+        try:
+            resp = requests.get(SCRAPERAPI_ENDPOINT, params=params, timeout=90)
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            print(f"  network error: {e}", flush=True)
+            time.sleep(10)
+            continue
+
+        if resp.status_code == 200 and "gsc_a_tr" in resp.text or (
+            resp.status_code == 200 and "gsc_a_nn" in resp.text
+        ):
+            return resp.text
+
+        # Print the body so the real reason shows up in the Actions log.
+        snippet = resp.text[:300].replace("\n", " ")
+        print(f"  status {resp.status_code}: {snippet}", flush=True)
+        last_error = f"HTTP {resp.status_code}"
+
+        if resp.status_code in (401, 403):
+            # Bad key or out of credits - escalating won't help.
+            break
+        time.sleep(10 * i)
+
+    raise RuntimeError(f"Could not fetch Scholar page (cstart={cstart}): {last_error}")
 
 
 def parse_publications(html):
-    """Parses the publication rows out of a Google Scholar profile page."""
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("tr.gsc_a_tr")
 
@@ -66,8 +88,6 @@ def parse_publications(html):
 
         title = title_tag.get_text(strip=True)
         href = title_tag.get("href", "")
-        # Links on the profile page are relative (e.g. "/citations?..."),
-        # so make them absolute.
         link = f"https://scholar.google.com{href}" if href.startswith("/") else href
 
         gray_divs = row.select("div.gs_gray")
@@ -93,7 +113,6 @@ def parse_publications(html):
 
 
 def fetch_all_publications():
-    """Loops through pages until no more rows are returned."""
     all_pubs = []
     cstart = 0
 
@@ -112,13 +131,12 @@ def fetch_all_publications():
             break
 
         cstart += PAGE_SIZE
-        time.sleep(1)  # small pause between pages
+        time.sleep(1)
 
     return all_pubs
 
 
 def build_html(publications):
-    """Builds an HTML fragment: title (linked) + authors + venue for each entry."""
     items = []
 
     def sort_key(p):
@@ -127,38 +145,41 @@ def build_html(publications):
         except (ValueError, TypeError):
             return 0
 
+    esc = htmllib.escape
     for pub in sorted(publications, key=sort_key):
-        title = pub.get("title", "Untitled")
-        link = pub.get("link", "#")
-        authors = pub.get("authors", "")
-        venue = pub.get("venue", "")
+        title = esc(pub.get("title", "Untitled"))
+        link = esc(pub.get("link", "#"), quote=True)
+        authors = esc(pub.get("authors", ""))
+        venue = esc(pub.get("venue", ""))
 
-        item_html = f"""
+        items.append(f"""
         <li class="pub-item">
             <a href="{link}" target="_blank" rel="noopener noreferrer" class="pub-title">{title}</a>
             <div class="pub-authors">{authors}</div>
             <div class="pub-venue">{venue}</div>
-        </li>"""
-        items.append(item_html)
+        </li>""")
 
-    html = f"""<!-- Auto-generated by fetch_scholar.py — do not edit manually -->
+    return f"""<!-- Auto-generated by fetch_scholar.py — do not edit manually -->
 <ul class="publications-list">
 {''.join(items)}
 </ul>
 """
-    return html
 
 
 def main():
     publications = fetch_all_publications()
     print(f"Fetched {len(publications)} publications total.", flush=True)
 
+    # Safety: never overwrite the existing list with an empty result.
+    if not publications:
+        print("ERROR: no publications parsed; keeping existing files.")
+        sys.exit(1)
+
     with open("publications.json", "w", encoding="utf-8") as f:
         json.dump(publications, f, ensure_ascii=False, indent=2)
 
-    html = build_html(publications)
     with open("publications.html", "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(build_html(publications))
 
     print("Wrote publications.json and publications.html", flush=True)
 
