@@ -1,8 +1,15 @@
 """
-fetch_scholar.py (ScraperAPI version, with retries and proxy escalation)
+fetch_scholar.py (ScraperAPI version, render + escalation)
 
 Fetches the Google Scholar author profile through ScraperAPI, parses the
 publication list, and writes publications.html and publications.json.
+
+Changes vs the old version (per ScraperAPI support advice):
+  - render=true is always used (plain requests now return 500)
+  - proxy tiers are tried one at a time, never premium + ultra_premium together
+  - all ScraperAPI params come BEFORE the target url, which is URL-encoded
+  - timeout is 75s (ScraperAPI retries internally for up to 70s)
+  - a 200 response that is actually Google's sign-in page counts as a failure
 
 Environment variables required:
   SCRAPERAPI_KEY - your ScraperAPI API key
@@ -15,6 +22,7 @@ import json
 import time
 import html as htmllib
 import requests
+from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
@@ -27,19 +35,26 @@ if not SCRAPERAPI_KEY or not SCHOLAR_ID:
 SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/"
 SCHOLAR_BASE_URL = "https://scholar.google.com/citations"
 PAGE_SIZE = 100
+TIMEOUT = 75
 
-# Each attempt uses a stronger (and more credit-hungry) proxy mode than the last.
-# Google Scholar usually needs "premium" or higher.
+# Tried in order. premium and ultra_premium are never combined.
 ATTEMPTS = [
-    {"country_code": "us"},
-    {"premium": "true", "country_code": "us"},
-    {"premium": "true", "country_code": "us"},
-    {"ultra_premium": "true"},
+    {"render": "true", "country_code": "us"},
+    {"render": "true", "premium": "true", "country_code": "us"},
+    {"render": "true", "ultra_premium": "true"},
 ]
 
 
+def looks_like_profile(text):
+    """True if the HTML is a real Scholar profile page (not a sign-in/consent page)."""
+    return "gsc_a_tr" in text or "gsc_prf_in" in text
+
+
+def looks_like_signin(text):
+    return "accounts.google.com" in text and not looks_like_profile(text)
+
+
 def fetch_page_html(cstart):
-    """Fetches one page of the author's profile via ScraperAPI, escalating on failure."""
     target_url = (
         f"{SCHOLAR_BASE_URL}?hl=en&user={SCHOLAR_ID}"
         f"&cstart={cstart}&pagesize={PAGE_SIZE}"
@@ -47,31 +62,39 @@ def fetch_page_html(cstart):
     last_error = None
 
     for i, extra in enumerate(ATTEMPTS, start=1):
-        params = {"api_key": SCRAPERAPI_KEY, "url": target_url, **extra}
-        mode = ",".join(extra.keys())
+        # Order matters: ScraperAPI params first, url LAST (urlencode keeps dict order
+        # and percent-encodes the target URL).
+        params = {"api_key": SCRAPERAPI_KEY, **extra, "url": target_url}
+        mode = "+".join(extra.keys())
         print(f"  attempt {i}/{len(ATTEMPTS)} (mode: {mode})...", flush=True)
         try:
-            resp = requests.get(SCRAPERAPI_ENDPOINT, params=params, timeout=90)
+            resp = requests.get(
+                f"{SCRAPERAPI_ENDPOINT}?{urlencode(params)}", timeout=TIMEOUT
+            )
         except requests.exceptions.RequestException as e:
-            last_error = e
+            last_error = str(e)
             print(f"  network error: {e}", flush=True)
-            time.sleep(10)
+            time.sleep(5)
             continue
 
-        if resp.status_code == 200 and "gsc_a_tr" in resp.text or (
-            resp.status_code == 200 and "gsc_a_nn" in resp.text
-        ):
-            return resp.text
+        if resp.status_code == 200:
+            if looks_like_profile(resp.text):
+                return resp.text
+            if looks_like_signin(resp.text):
+                print("  got 200 but it is Google's sign-in page; escalating.", flush=True)
+                last_error = "Google sign-in page returned"
+            else:
+                print("  got 200 but no profile markup found; escalating.", flush=True)
+                last_error = "unrecognised page"
+            time.sleep(3)
+            continue
 
-        # Print the body so the real reason shows up in the Actions log.
         snippet = resp.text[:300].replace("\n", " ")
         print(f"  status {resp.status_code}: {snippet}", flush=True)
         last_error = f"HTTP {resp.status_code}"
-
         if resp.status_code in (401, 403):
-            # Bad key or out of credits - escalating won't help.
-            break
-        time.sleep(10 * i)
+            break  # bad key / out of credits - escalating won't help
+        time.sleep(5)
 
     raise RuntimeError(f"Could not fetch Scholar page (cstart={cstart}): {last_error}")
 
@@ -131,7 +154,7 @@ def fetch_all_publications():
             break
 
         cstart += PAGE_SIZE
-        time.sleep(1)
+        time.sleep(2)
 
     return all_pubs
 
