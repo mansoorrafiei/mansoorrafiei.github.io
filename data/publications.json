@@ -5,7 +5,7 @@
     "authors": "J Mohoney, A Pacaci, SR Chowdhury, A Mousavi, IF Ilyas, UF Minhas, ...",
     "venue": "Proceedings of the ACM on Management of Data 1 (2), 1-25, 2023",
     "year": "2023",
-    "cited_by": "97"
+    "cited_by": "102"
   },
   {
     "title": "Hamiltonian adaptive importance sampling",
@@ -32,6 +32,22 @@
     "cited_by": "2"
   },
   {
+    "title": "Balanced Adaptive Prototype Selection for Scalable TabPFN Inference on Large-Scale Tabular Data",
+    "link": "https://scholar.google.com/citations?view_op=view_citation&hl=en&user=2fUj0F4AAAAJ&pagesize=100&citation_for_view=2fUj0F4AAAAJ:7PzlFSSx8tAC",
+    "authors": "M Jadid, MR Garkani, A Mousavi",
+    "venue": "arXiv preprint arXiv:2608.12989, 2026",
+    "year": "2026",
+    "cited_by": "1"
+  },
+  {
+    "title": "ScoutNeRV: Rapid Encoding of Grid-Based Video INRs via ScoutNet",
+    "link": "https://scholar.google.com/citations?view_op=view_citation&hl=en&user=2fUj0F4AAAAJ&pagesize=100&citation_for_view=2fUj0F4AAAAJ:IWHjjKOFINEC",
+    "authors": "N Alizada, F Baghban, H Pishkar, A Mousavi",
+    "venue": "arXiv preprint arXiv:2609.27958, 2026",
+    "year": "2026",
+    "cited_by": ""
+  },
+  {
     "title": "Beyond Effective Sample Size: Effective Number of Proposals for Adaptive Importance Sampling",
     "link": "https://scholar.google.com/citations?view_op=view_citation&hl=en&user=2fUj0F4AAAAJ&pagesize=100&citation_for_view=2fUj0F4AAAAJ:L8Ckcad2t8MC",
     "authors": "A Mousavi, V Elvira",
@@ -40,10 +56,10 @@
     "cited_by": ""
   },
   {
-    "title": "Balanced Adaptive Prototype Selection for Scalable TabPFN Inference on Large-Scale Tabular Data",
-    "link": "https://scholar.google.com/citations?view_op=view_citation&hl=en&user=2fUj0F4AAAAJ&pagesize=100&citation_for_view=2fUj0F4AAAAJ:7PzlFSSx8tAC",
-    "authors": "M Jadid, MR Garkani, A Mousavi",
-    "venue": "arXiv preprint arXiv:2608.12989, 2026",
+    "title": "SoftTri: Smooth Triangular Membership Functions for Adaptive Fuzzy Inference Systems",
+    "link": "https://scholar.google.com/citations?view_op=view_citation&hl=en&user=2fUj0F4AAAAJ&pagesize=100&citation_for_view=2fUj0F4AAAAJ:ZeXyd9-uunAC",
+    "authors": "B Sarani, R Ardakanian, A Mousavi",
+    "venue": "arXiv preprint arXiv:2609.20194, 2026",
     "year": "2026",
     "cited_by": ""
   },
